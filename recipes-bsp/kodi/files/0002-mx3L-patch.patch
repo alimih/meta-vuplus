@@ -1,3 +1,72 @@
+From f47e2d7501f0c54ea416876842205ff83168621f Mon Sep 17 00:00:00 2001
+From: mx3L <mx3ldev@gmail.com>
+Date: Mon, 26 Oct 2015 11:29:12 +0100
+Subject: [PATCH] added Enigma2Player
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+same as ExternalPlayer but with added gathering
+of subtitles paths, which are sent to external
+player along with play url
+
+LinuxInputDevices: map all vuplus RC buttons
+
+Only few vuplus RC buttons are mapped, we can use all of
+them.
+
+Credits to @darkmantk
+http://forums.openpli.org/topic/40225-kodi-152-for-vusolose-vusolo2-and-vuduo2/?view=findpost&p=527027
+
+kodi.sh.in: fix hdd detection
+
+play everything with e2player
+
+Enigma2Player: create metadata file about playback media
+
+Enigma2Player: set total time and position based on kodiext output
+
+kodiext will be now producing json output with position and duration
+of currently playing media.
+We will parse this output and set m_time and m_totalTime accordingly,
+so Kodi can get correct totalTime, time and Percentage of playing media.
+
+For example this will allow Kodi to store our last position, which
+is subsequently used for resume support from this position
+
+AddonPythonInvoker[workaround]: disable SSL verification for python2.7.9+
+
+In python2.7.9 was enabled SSL verification by default. Many addons
+use standard's library modules like httplib, urllib2 to make secure
+connections, which triggers "SSL: CERTIFICATE_VERIFY_FAILED” Error
+
+In order to avoid it, we globally disable SSL verification as it was
+in pre 2.7.9.
+
+http://stackoverflow.com/questions/27835619/ssl-certificate-verify-failed-error
+
+fix building of enigma2player
+
+keyboard.xml: Back on Escape button
+---
+ Makefile.in                                        |   1 +
+ system/keymaps/keyboard.xml                        |   2 +-
+ system/playercorefactory.xml                       |  16 +-
+ tools/Linux/kodi.sh.in                             |   2 +-
+ xbmc/cores/Enigma2Player/Enigma2Player.cpp         | 673 +++++++++++++++++++++
+ xbmc/cores/Enigma2Player/Enigma2Player.h           | 116 ++++
+ xbmc/cores/Enigma2Player/Makefile                  |   6 +
+ xbmc/cores/playercorefactory/PlayerCoreConfig.h    |   2 +
+ xbmc/cores/playercorefactory/PlayerCoreFactory.cpp |   1 +
+ xbmc/cores/playercorefactory/PlayerCoreFactory.h   |   2 +
+ xbmc/input/linux/LinuxInputDevices.cpp             |  16 +
+ xbmc/interfaces/json-rpc/PlayerOperations.cpp      |   1 +
+ xbmc/interfaces/python/AddonPythonInvoker.cpp      |  10 +-
+ 13 files changed, 844 insertions(+), 4 deletions(-)
+ create mode 100644 xbmc/cores/Enigma2Player/Enigma2Player.cpp
+ create mode 100644 xbmc/cores/Enigma2Player/Enigma2Player.h
+ create mode 100644 xbmc/cores/Enigma2Player/Makefile
+
 diff --git a/Makefile.in b/Makefile.in
 index a4f8582..1fceea5 100644
 --- a/Makefile.in
@@ -10,6 +79,19 @@ index a4f8582..1fceea5 100644
                     xbmc/cores/VideoRenderers/VideoRenderer.a \
                     xbmc/cores/VideoRenderers/VideoShaders/VideoShaders.a \
                     xbmc/cores/cores.a \
+diff --git a/system/keymaps/keyboard.xml b/system/keymaps/keyboard.xml
+index 9833cff..6621409 100644
+--- a/system/keymaps/keyboard.xml
++++ b/system/keymaps/keyboard.xml
+@@ -50,7 +50,7 @@
+       <m>Menu</m>
+       <n mod="ctrl">ActivateWindow(PlayerControls)</n>
+       <s>ActivateWindow(shutdownmenu)</s>
+-      <escape>PreviousMenu</escape>
++      <escape>Back</escape>
+       <i>Info</i>
+       <menu>ContextMenu</menu>
+       <menu mod="longpress">Menu</menu>
 diff --git a/system/playercorefactory.xml b/system/playercorefactory.xml
 index 6a5a943..57711aa 100644
 --- a/system/playercorefactory.xml
@@ -990,3 +1072,6 @@ index 9f96ce5..0a58fd1 100644
  
  #endif
  
+-- 
+1.9.1
+
