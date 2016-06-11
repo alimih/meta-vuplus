@@ -2,7 +2,7 @@
 MACHINE_FEATURES_BACKFILL_CONSIDERED = "rtc"
 
 MACHINE_ESSENTIAL_EXTRA_RDEPENDS = " \
-	vuplus-dvb-modules-${MACHINE} \
+	${@base_contains("MACHINE_FEATURES", "dvbproxy", "vuplus-dvb-proxy libgles vuplus-platform-util", "vuplus-dvb-modules", d)} \
 	${@base_contains("GST_VERSION", "1.0", "gstreamer1.0-libav", "gst-ffmpeg", d)} \
 "
 
@@ -61,6 +61,6 @@ IMAGE_CMD_ubi_append = " \
 	rm -rf vuplus; \
 "
 
-MACHINE_FEATURES += "alsa usbhost wlan kernelwifi extrakernelwifi 3dtv switchoff osdposition hdmicec fan"
+MACHINE_FEATURES += "alsa usbhost wlan kernelwifi extrakernelwifi 3dtv switchoff osdposition hdmicec fan dvbproxy"
 
 require conf/machine/include/tune-mips32.inc

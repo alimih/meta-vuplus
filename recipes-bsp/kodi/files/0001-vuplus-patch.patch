@@ -1,0 +1,1551 @@
+From bb35e1c553f6a121143c7e757f20add304e003b4 Mon Sep 17 00:00:00 2001
+From: oskwon <oskwon@dev3>
+Date: Thu, 31 Mar 2016 12:19:34 +0900
+Subject: [PATCH] vuplus patch.
+
+---
+ .gitignore                                         |   3 +-
+ Makefile.in                                        |  16 +-
+ addons/library.xbmc.addon/libXBMC_addon.h          |   8 +
+ configure.ac                                       |  94 ++++++++++-
+ m4/xbmc_arch.m4                                    |   9 +
+ system/playercorefactory.xml                       |   8 +
+ tools/Linux/kodi.run.in                            |   4 +
+ tools/Linux/kodi.sh.in                             |  33 +++-
+ tools/Linux/lsb_release                            |  50 ++++++
+ tools/depends/configure.ac                         |   8 +
+ tools/depends/native/JsonSchemaBuilder/Makefile    |   7 +
+ .../depends/target/ffmpeg/autobuild_vuplus_arm.sh  | 185 +++++++++++++++++++++
+ .../depends/target/ffmpeg/autobuild_vuplus_mips.sh | 185 +++++++++++++++++++++
+ tools/depends/target/ffmpeg/build-solo2.sh         |  23 +++
+ .../AudioEngine/Engines/ActiveAE/ActiveAESink.cpp  |   7 +
+ xbmc/cores/DllLoader/ldt_keeper.h                  |   3 +
+ .../dvdplayer/DVDCodecs/Video/OpenMaxVideo.cpp     |  10 ++
+ xbmc/filesystem/FileCache.h                        |   3 +-
+ xbmc/input/InputManager.cpp                        |  12 ++
+ xbmc/input/linux/LinuxInputDevices.cpp             |  35 +++-
+ xbmc/utils/CPUInfo.cpp                             |  27 +++
+ xbmc/windowing/egl/EGLNativeTypeVuplus.cpp         | 177 ++++++++++++++++++++
+ xbmc/windowing/egl/EGLNativeTypeVuplus.h           |  60 +++++++
+ xbmc/windowing/egl/EGLWrapper.cpp                  |   6 +
+ xbmc/windowing/egl/Makefile.in                     |   6 +
+ xbmc/xbmc.cpp                                      |   4 +
+ 26 files changed, 959 insertions(+), 24 deletions(-)
+ create mode 100644 tools/Linux/kodi.run.in
+ create mode 100644 tools/Linux/lsb_release
+ create mode 100755 tools/depends/target/ffmpeg/autobuild_vuplus_arm.sh
+ create mode 100755 tools/depends/target/ffmpeg/autobuild_vuplus_mips.sh
+ create mode 100755 tools/depends/target/ffmpeg/build-solo2.sh
+ create mode 100644 xbmc/windowing/egl/EGLNativeTypeVuplus.cpp
+ create mode 100644 xbmc/windowing/egl/EGLNativeTypeVuplus.h
+
+diff --git a/.gitignore b/.gitignore
+index 4d36744..f6bd9bc 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -426,7 +426,7 @@ lib/cpluff/stamp-h1
+ /tools/depends/native/libsquish-native/squish-install/
+ /tools/depends/native/TexturePacker/bin/
+ /tools/depends/target/ffmpeg/.ffmpeg-installed
+-/tools/depends/target/ffmpeg/ffmpeg-*-*.tar.gz
++#/tools/depends/target/ffmpeg/ffmpeg-*-*.tar.gz
+ /tools/depends/target/ffmpeg/ffmpeg-*-*/
+ /tools/depends/target/ffmpeg/ffmpeg-install/
+ /tools/depends/target/Toolchain_binaddons.cmake
+@@ -452,6 +452,7 @@ lib/cpluff/stamp-h1
+ 
+ # /tools/Linux/
+ /tools/Linux/kodi.sh
++/tools/Linux/kodi.run
+ /tools/Linux/kodi-standalone.sh
+ /tools/Linux/kodi-xsession.desktop
+ 
+diff --git a/Makefile.in b/Makefile.in
+index c858252..a4f8582 100644
+--- a/Makefile.in
++++ b/Makefile.in
+@@ -216,7 +216,7 @@ INCLUDES=$(sort @INCLUDES@)
+ 
+ CLEAN_FILES=@APP_NAME_LC@.bin @APP_NAME_LC@-xrandr lib@APP_NAME_LC@.so
+ 
+-DISTCLEAN_FILES=config.h config.log config.status tools/Linux/@APP_NAME_LC@.sh \
++DISTCLEAN_FILES=config.h config.log config.status tools/Linux/@APP_NAME_LC@.sh tools/Linux/@APP_NAME_LC@.run \
+         tools/Linux/@APP_NAME_LC@-standalone.sh autom4te.cache config.h.in~ \
+         system/libcpluff-@ARCH@.so
+ 
+@@ -252,9 +252,12 @@ CHECK_LIBS = xbmc/addons/test/addonsTest.a \
+              xbmc/video/test/videoTest.a \
+              xbmc/threads/test/threadTest.a \
+              xbmc/interfaces/python/test/pythonSwigTest.a \
+-             xbmc/cores/AudioEngine/Sinks/test/AESinkTest.a \
+              xbmc/test/xbmc-test.a
+ 
++ifeq ($(or $(findstring mips,@ARCH@)),)
++CHECK_LIBS+=xbmc/cores/AudioEngine/Sinks/test/AESinkTest.a
++endif
++
+ ifeq (@USE_WAYLAND@,1)
+ CHECK_LIBS += xbmc/windowing/tests/wayland/test_wayland.a
+ 
+@@ -407,6 +410,10 @@ else
+ MAINOBJS+=xbmc/main/main.a
+ endif # USE_ANDROID
+ 
++ifeq ($(findstring @ARCH@,arm,mips), @ARCH@)
++VUPLUS_SUPPORT=$(shell cd ../xbmc-support; pwd)
++VUPLUS_EXTLIBS= xbmc/windowing/egl/gles_init.a -ldvb_base -lnxpl -ldvb_client -L$(VUPLUS_SUPPORT) -lxbmc_base
++endif
+ 
+ OBJSXBMC =$(DIRECTORY_ARCHIVES)
+ OBJSXBMC:=$(filter-out $(DYNOBJSXBMC), $(OBJSXBMC))
+@@ -434,7 +441,7 @@ endif
+ ifeq ($(findstring osx,@ARCH@), osx)
+ 	$(SILENT_LD) $(CXX) $(LDFLAGS) -o @APP_NAME_LC@.bin $(MAINOBJS) -Wl,-all_load,-ObjC $(MAINOBJS) $(DYNOBJSXBMC) $(NWAOBJSXBMC) $(OBJSXBMC) $(LIBS) -rdynamic
+ else
+-	$(SILENT_LD) $(CXX) $(CXXFLAGS) $(LDFLAGS) -o @APP_NAME_LC@.bin $(MAINOBJS) -Wl,--start-group $(MAINOBJS) $(DYNOBJSXBMC) $(OBJSXBMC) -Wl,--end-group $(NWAOBJSXBMC) $(LIBS) -rdynamic
++	$(SILENT_LD) $(CXX) $(CXXFLAGS) $(LDFLAGS) -o @APP_NAME_LC@.bin $(MAINOBJS) -Wl,--start-group $(MAINOBJS) $(DYNOBJSXBMC) $(OBJSXBMC) -Wl,--end-group $(NWAOBJSXBMC) $(LIBS) -rdynamic $(VUPLUS_EXTLIBS)
+ endif
+ 
+ @APP_NAME_LC@-xrandr: xbmc-xrandr.c
+@@ -510,6 +517,9 @@ install-scripts:
+ 	@install -d $(DESTDIR)$(datarootdir)/xsessions
+ 	@install -m 0644 tools/Linux/@APP_NAME_LC@-xsession.desktop $(DESTDIR)$(datarootdir)/xsessions/@APP_NAME_LC@.desktop
+ 	@cd $(DESTDIR)$(datarootdir)/xsessions; [ -L xbmc.desktop ] || [ -f xbmc.desktop ] || ln -s @APP_NAME_LC@.desktop xbmc.desktop
++	@install -d $(DESTDIR)$(libdir)
++	@install -d $(DESTDIR)$(libdir)/@APP_NAME_LC@
++	@install tools/Linux/@APP_NAME_LC@.run $(DESTDIR)$(libdir)/@APP_NAME_LC@/@APP_NAME_LC@.run
+ 
+ install-datas: install-scripts
+ 	@echo "Copying support and legal files..."
+diff --git a/addons/library.xbmc.addon/libXBMC_addon.h b/addons/library.xbmc.addon/libXBMC_addon.h
+index 8bf90b7..49bd98a 100644
+--- a/addons/library.xbmc.addon/libXBMC_addon.h
++++ b/addons/library.xbmc.addon/libXBMC_addon.h
+@@ -62,7 +62,15 @@ typedef intptr_t      ssize_t;
+ #elif defined(__ARMEL__)
+ #define ADDON_HELPER_ARCH       "arm"
+ #elif defined(__mips__)
++
++//#if defined(TARGET_VUPLUS) || defined(TARGET_VUPLUS_ARM)
++//#define ADDON_HELPER_ARCH       "mipsel-oe-linux"
++//#else
++
+ #define ADDON_HELPER_ARCH       "mips"
++
++//#endif
++
+ #else
+ #define ADDON_HELPER_ARCH       "i486-linux"
+ #endif
+diff --git a/configure.ac b/configure.ac
+index 5d47a4a..8d49922 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -645,6 +645,19 @@ case $host in
+   powerpc64-*-linux-gnu*|powerpc64-*-linux-uclibc*)
+      ARCH="powerpc64-linux"
+      ;;
++  arm-oe-linux-gnueabi)
++     target_platform=target_vuplus_arm
++     ARCH="arm"
++     use_arch="arm"
++     ffmpeg_target_os=linux
++     use_joystick=no
++     use_gles=yes
++     use_sdl=no
++     use_x11=no
++     use_wayland=no
++     use_optical_drive=no
++     USE_STATIC_FFMPEG=0
++     ;;
+   arm*-*-linux-gnu*|arm*-*-linux-uclibc*)
+      target_platform=target_linux
+      ARCH="arm"
+@@ -669,6 +682,19 @@ case $host in
+      use_wayland=no
+      build_shared_lib=yes
+      ;;
++  mipsel-*-linux*|mipsel*linux)
++     target_platform=target_vuplus
++     ARCH="mips"
++     use_arch="mips"
++     ffmpeg_target_os=linux
++     use_joystick=no
++     use_gles=yes
++     use_sdl=no
++     use_x11=no
++     use_wayland=no
++     use_optical_drive=no
++     USE_STATIC_FFMPEG=0
++     ;;
+   mips*-*-linux-gnu*)
+      target_platform=target_linux
+      ARCH="mips"
+@@ -678,7 +704,7 @@ case $host in
+      use_gl=yes
+      use_sdl=yes
+      use_wayland=no
+-     USE_STATIC_FFMPEG=1
++     USE_STATIC_FFMPEG=0
+      ;;
+   *)
+      AC_MSG_ERROR(unsupported host ($host))
+@@ -709,6 +735,44 @@ case $use_platform in
+      CFLAGS="$CFLAGS"
+      CXXFLAGS="$CXXFLAGS"
+      ;;
++  vuplus)
++     target_platform=target_vuplus
++     ARCH="mips"
++     use_arch="mips"
++     ffmpeg_target_os=linux
++     use_joystick=no
++     use_gles=yes
++     use_sdl=no
++     use_x11=no
++     use_wayland=no
++     use_alsa=no
++     use_wayland=no
++     use_optical_drive=no
++     USE_STATIC_FFMPEG=0
++     AC_DEFINE(HAS_EGLGLES, [1], [Define if supporting EGL based GLES Framebuffer])
++     USE_VUPLUS_EGL=1
++     CFLAGS="$CFLAGS"
++     CXXFLAGS="$CXXFLAGS"
++     ;;
++  vuplus-arm)
++     target_platform=target_vuplus_arm
++     ARCH="arm"
++     use_arch="arm"
++     ffmpeg_target_os=linux
++     use_joystick=no
++     use_gles=yes
++     use_sdl=no
++     use_x11=no
++     use_wayland=no
++     use_alsa=no
++     use_wayland=no
++     use_optical_drive=no
++     USE_STATIC_FFMPEG=0
++     AC_DEFINE(HAS_EGLGLES, [1], [Define if supporting EGL based GLES Framebuffer])
++     USE_VUPLUS_ARM_EGL=1
++     CFLAGS="$CFLAGS"
++     CXXFLAGS="$CXXFLAGS"
++     ;;
+ esac
+ 
+ if test "$host_vendor" = "apple"; then
+@@ -1122,7 +1186,7 @@ int main() {
+   )])
+ AC_LANG_POP([C++])
+ 
+-if test "${target_platform}" = "target_linux" || test "${target_platform}" = "target_raspberry_pi" || test "${target_platform}" = "target_android"; then
++if test "${target_platform}" = "target_linux" || test "${target_platform}" = "target_raspberry_pi" || test "${target_platform}" = "target_android" || test "${target_platform}" = "target_vuplus" || test "${target_platform}" = "target_vuplus_arm"; then
+   PKG_CHECK_MODULES([UUID], [uuid],, AC_MSG_ERROR(libuuid not found))
+ fi
+ 
+@@ -1633,7 +1697,7 @@ ffmpeg_build="${abs_top_srcdir}/tools/depends/target/ffmpeg"
+ FFMPEG_VER_SHA=$(grep "VERSION=" ${ffmpeg_build}/FFMPEG-VERSION | sed 's/VERSION=//g')
+ AC_DEFINE_UNQUOTED([FFMPEG_VER_SHA], ["$FFMPEG_VER_SHA"], [FFmpeg version hash])
+ 
+-if test "$with_ffmpeg" = "shared"; then
++if test "$with_ffmpeg" = "shared" || test "$with_ffmpeg" = "force_vuplus_mips"; then
+   # allow linking against shared ffmpeg libs
+   # a proper version must be installed, we won't build ffmpeg
+   USE_STATIC_FFMPEG=0
+@@ -1703,15 +1767,32 @@ if test "${USE_STATIC_FFMPEG}" = "1"; then
+   fi
+ fi
+ 
++if test "$with_ffmpeg" = "force_vuplus_mips"; then
++  # always build our ffmpeg
++  AC_MSG_NOTICE("FFmpeg installation forced by user - installing our version")
++  CFLAGS="$CFLAGS" CXXFLAGS="$CXXFLAGS" ${ffmpeg_build}/autobuild_vuplus_mips.sh ${FFMPEG_OPTS}
++  export PKG_CONFIG_PATH="${ffmpeg_build}/ffmpeg-install/lib/pkgconfig:$PKG_CONFIG_PATH"
++fi
++if test "$with_ffmpeg" = "force_vuplus_arm"; then
++  # always build our ffmpeg
++  AC_MSG_NOTICE("FFmpeg installation forced by user - installing our version")
++  CFLAGS="$CFLAGS" CXXFLAGS="$CXXFLAGS" ${ffmpeg_build}/autobuild_vuplus_arm.sh ${FFMPEG_OPTS}
++  export PKG_CONFIG_PATH="${ffmpeg_build}/ffmpeg-install/lib/pkgconfig:$PKG_CONFIG_PATH"
++fi
++
+ if test "$FFMPEG_FOUND" != "true"; then
+   PKG_CHECK_MODULES([FFMPEG], [$FFMPEG_LIBNAMES],
+-    [INCLUDES="$INCLUDES $FFMPEG_CFLAGS"; LIBS="$LIBS $FFMPEG_LIBS"; FFMPEG_FOUND="true"], 
++    [FFMPEG_FOUND="true";USE_STATIC_FFMPEG=1], 
+     [AC_MSG_ERROR("ffmpeg not found")])
++  FFMPEG_LIBS=$(PKG_CONFIG_SYSROOT_DIR="" ${PKG_CONFIG} --libs libavcodec 2>/dev/null)
++  FFMPEG_CFLAGS=$(PKG_CONFIG_SYSROOT_DIR="" ${PKG_CONFIG} --cflags libavcodec 2>/dev/null)
++  INCLUDES="$INCLUDES $FFMPEG_CFLAGS"
++  LIBS="$LIBS $FFMPEG_LIBS";
+ fi
+ 
+ if test "${USE_STATIC_FFMPEG}" = "1"; then
+   # get the libdir for static linking
+-  FFMPEG_LIBDIR=${pkg_cfg_prefix}$(PKG_CONFIG_SYSROOT_DIR="" ${PKG_CONFIG} --static --variable=libdir libavcodec)
++  FFMPEG_LIBDIR=$(PKG_CONFIG_SYSROOT_DIR="" ${PKG_CONFIG} --static --variable=libdir libavcodec)
+   GNUTLS_ALL_LIBS=$(${PKG_CONFIG} --static --libs-only-l --silence-errors gnutls)
+   VORBISENC_ALL_LIBS=$(${PKG_CONFIG} --static --libs-only-l --silence-errors vorbisenc)
+   DCADEC_ALL_LIBS=$(${PKG_CONFIG} --static --libs-only-l --silence-errors dcadec)
+@@ -2392,6 +2473,7 @@ OUTPUT_FILES="Makefile \
+     lib/addons/library.xbmc.codec/Makefile \
+     lib/addons/library.kodi.guilib/Makefile \
+     lib/addons/library.xbmc.pvr/Makefile \
++    tools/Linux/${APP_NAME_LC}.run \
+     tools/Linux/${APP_NAME_LC}.sh \
+     tools/Linux/${APP_NAME_LC}-standalone.sh \
+     tools/Linux/${APP_NAME_LC}-xsession.desktop \
+@@ -2535,6 +2617,8 @@ AC_SUBST(USE_SSE4)
+ AC_SUBST(USE_MMAL)
+ AC_SUBST(USE_X11)
+ AC_SUBST(USE_BREAKPAD)
++AC_SUBST(USE_VUPLUS_EGL)
++AC_SUBST(USE_VUPLUS_ARM_EGL)
+ 
+ # pushd and popd are not available in other shells besides bash, so implement
+ # our own pushd/popd functions
+diff --git a/m4/xbmc_arch.m4 b/m4/xbmc_arch.m4
+index 0b66a82..9cbd873 100644
+--- a/m4/xbmc_arch.m4
++++ b/m4/xbmc_arch.m4
+@@ -63,6 +63,9 @@ case $host in
+   arm*-*-linux-gnu*|arm*-*-linux-uclibc*)
+      AC_SUBST(ARCH_DEFINES, "-DTARGET_POSIX -DTARGET_LINUX -D_LINUX")
+      ;;
++  mipsel-*-linux*)
++     AC_SUBST(ARCH_DEFINES, "-DTARGET_POSIX -DTARGET_LINUX -D_LINUX -D_MIPSEL")
++     ;;
+   mips*-*-linux-gnu*|mips*-*-linux-uclibc*)
+      AC_SUBST(ARCH_DEFINES, "-DTARGET_POSIX -DTARGET_LINUX -D_LINUX")
+      ;;
+@@ -81,5 +84,11 @@ case $use_platform in
+   raspberry-pi)
+      AC_SUBST(ARCH_DEFINES, "-DTARGET_POSIX -DTARGET_LINUX -D_LINUX -D_ARMEL -DTARGET_RASPBERRY_PI")
+      ;;
++  vuplus)
++     AC_SUBST(ARCH_DEFINES, "-DTARGET_POSIX -DTARGET_LINUX -D_LINUX -D_MIPSEL -DTARGET_VUPLUS")
++     ;;
++  vuplus-arm)
++     AC_SUBST(ARCH_DEFINES, "-DTARGET_POSIX -DTARGET_LINUX -D_LINUX -DTARGET_VUPLUS_ARM")
++     ;;
+ esac
+ ])
+diff --git a/system/playercorefactory.xml b/system/playercorefactory.xml
+index df0e42f..6a5a943 100644
+--- a/system/playercorefactory.xml
++++ b/system/playercorefactory.xml
+@@ -8,6 +8,13 @@
+     <player name="DVDPlayer" /> placeholder for MPlayer
+     <player name="PAPlayer" audio="true" />
+     -->
++    <player name="E2Player" type="ExternalPlayer" audio="false" video="true">
++      <filename>xbmc.helper</filename>
++      <args>--url="{1}" --owner="$PPID"</args>
++      <hidexbmc>true</hidexbmc>
++      <hideconsole>true</hideconsole>
++      <warpcursor>none</warpcursor>
++    </player>
+   </players>
+ 
+   <rules name="system rules">
+@@ -36,5 +43,6 @@
+ 
+     <!-- pvr radio channels should be played by dvdplayer because they need buffering -->
+     <rule name="radio" filetypes="pvr" filename=".*/radio/.*" player="DVDPlayer" />
++    <rule name="dgb" filetypes="*" player="E2Player"/>
+   </rules>
+ </playercorefactory>
+diff --git a/tools/Linux/kodi.run.in b/tools/Linux/kodi.run.in
+new file mode 100644
+index 0000000..f1091ca
+--- /dev/null
++++ b/tools/Linux/kodi.run.in
+@@ -0,0 +1,4 @@
++#!/bin/sh
++
++/usr/bin/kodi > /dev/null 2>&1 &
++
+diff --git a/tools/Linux/kodi.sh.in b/tools/Linux/kodi.sh.in
+index 9e25f45..dda5675 100644
+--- a/tools/Linux/kodi.sh.in
++++ b/tools/Linux/kodi.sh.in
+@@ -25,9 +25,24 @@ prefix="@prefix@"
+ exec_prefix="@exec_prefix@"
+ datarootdir="@datarootdir@"
+ LIBDIR="@libdir@"
+-CRASHLOG_DIR=${CRASHLOG_DIR:-$HOME}
+-USERDATA_DIR="${HOME}/.${bin_name}"
++#CRASHLOG_DIR=${CRASHLOG_DIR:-$HOME}
++HDD_MOUNT_POINT="$(grep '/media/hdd' /proc/mounts)"
++if [ "$HDD_MOUNT_POINT" != "" ]; then
++    export HOME="/media/hdd"
++else
++    export HOME="/home/root"
++fi
+ 
++export AESINK_RETRY_CNT="1"
++export KODI_TEMP="/tmp/kodi"
++CRASHLOG_DIR=${CRASHLOG_DIR:-$KODI_TEMP}
++
++echo "-----------------+ XBMC ENVIRONMENTS +"
++echo "  + CRASHLOG_DIR    : "$CRASHLOG_DIR
++echo "  + HOME            : "$HOME
++echo "  + HDD_MOUNT_POINT : "$HDD_MOUNT_POINT
++echo ""
++USERDATA_DIR="${HOME}/.${bin_name}"
+ 
+ # Check for some options used by this script
+ while [ "$#" -gt "0" ]
+@@ -155,13 +170,13 @@ do
+   LOOP=0
+   "$LIBDIR/${bin_name}/${bin_name}.bin" $SAVED_ARGS
+   RET=$?
+-  if [ $(( $RET == 65 )) = "1" ]
+-  then # User requested to restart app
+-    LOOP=1
+-  elif [ $(( ($RET >= 131 && $RET <= 136) || $RET == 139 )) = "1" ]
+-  then # Crashed with core dump
+-    print_crash_report
+-  fi
++#  if [ $(( $RET == 65 )) = "1" ]
++#  then # User requested to restart app
++#    LOOP=1
++#  elif [ $(( ($RET >= 131 && $RET <= 136) || $RET == 139 )) = "1" ]
++#  then # Crashed with core dump
++#    print_crash_report
++#  fi
+ done
+ 
+ exit $RET
+diff --git a/tools/Linux/lsb_release b/tools/Linux/lsb_release
+new file mode 100644
+index 0000000..a65e8dd
+--- /dev/null
++++ b/tools/Linux/lsb_release
+@@ -0,0 +1,50 @@
++#!/bin/sh
++VERSION="$(uname -r)"
++CODENAME="$(uname -n)"
++DISTRIBUTOR=Vuplus
++
++case $1 in
++"-v")
++	echo "No LSB modules are available."
++	;;
++"-i")
++	echo "Distributor ID: $DISTRIBUTOR"
++	;;
++"-irc")
++	echo "Distributor ID: $DISTRIBUTOR"
++	echo "Release:        $VERSION"
++	echo "Codename:       $CODENAME"
++	;;
++"-d")
++	echo "Description:    $DISTRIBUTOR GNU/Linux $VERSION ($CODENAME)"
++	;;
++"-r")
++	echo "Release:        $VERSION"
++	;;
++"-c")
++	echo "Codename:       $CODENAME"
++	;;
++"-a")
++	echo "Distributor ID: $DISTRIBUTOR"
++	echo "Description:    $DISTRIBUTOR Linux $VERSION $CODENAME GNU/Linux"
++	echo "Release:        $VERSION" 
++	echo "Codename:       $CODENAME"
++	;;
++"-s")
++	echo "No LSB modules are available."
++	;;
++*)
++	echo "Usage: lsb_release [options]"
++	echo ""
++	echo "Options:"
++	echo "  -h, --help         show this help message and exit"
++	echo "  -v, --version      show LSB modules this system supports"
++	echo "  -i, --id           show distributor ID"
++	echo "  -d, --description  show description of this distribution"
++	echo "  -r, --release      show release number of this distribution"
++	echo "  -c, --codename     show code name of this distribution"
++	echo "  -a, --all          show all of the above information"
++	echo "  -s, --short        show requested information in short format"
++;;
++esac
++
+diff --git a/tools/depends/configure.ac b/tools/depends/configure.ac
+index 12935e3..f980889 100644
+--- a/tools/depends/configure.ac
++++ b/tools/depends/configure.ac
+@@ -146,6 +146,14 @@ case $host in
+     #android builds are always cross
+     cross_compiling="yes"
+   ;;
++  mipsel-*-linux*)
++    use_cpu=$host_cpu
++    use_toolchain="${use_toolchain:-/usr}"
++    platform_cflags="-Os -fPIC -DPIC"
++    platform_ldflags="-Wl,-rpath-link=$prefix/$deps_dir/lib"
++    platform_cxxflags="$platform_cflags"
++    platform_os="linux"
++  ;;
+   arm*-*-linux-gnu*|arm*-*-linux-uclibc*)
+     if test "$use_platform" = "auto"; then
+       if test "x$use_cpu" = "xauto"; then
+diff --git a/tools/depends/native/JsonSchemaBuilder/Makefile b/tools/depends/native/JsonSchemaBuilder/Makefile
+index cf5d20b..16a66c6 100644
+--- a/tools/depends/native/JsonSchemaBuilder/Makefile
++++ b/tools/depends/native/JsonSchemaBuilder/Makefile
+@@ -1,4 +1,9 @@
+ ROOT_DIR := $(shell dirname $(realpath $(lastword $(MAKEFILE_LIST))))
++
++LD=ld
++CC=gcc
++CXX=g++
++
+ -include ../../Makefile.include
+ 
+ ifeq ($(NATIVEPREFIX),)
+@@ -19,6 +24,8 @@ CONFIGURE=./configure --prefix=$(PREFIX)
+ APP=$(SOURCE)/JsonSchemaBuilder
+ APPBIN=$(PREFIX)/bin/JsonSchemaBuilder
+ 
++.PHONY:$(PLATFORM)
++
+ all: .installed-$(PLATFORM)
+ 
+ $(PLATFORM):
+diff --git a/tools/depends/target/ffmpeg/autobuild_vuplus_arm.sh b/tools/depends/target/ffmpeg/autobuild_vuplus_arm.sh
+new file mode 100755
+index 0000000..9e23cbd
+--- /dev/null
++++ b/tools/depends/target/ffmpeg/autobuild_vuplus_arm.sh
+@@ -0,0 +1,185 @@
++#!/bin/bash
++#
++#      Copyright (C) 2005-2013 Team XBMC
++#      http://xbmc.org
++#
++#  This Program is free software; you can redistribute it and/or modify
++#  it under the terms of the GNU General Public License as published by
++#  the Free Software Foundation; either version 2, or (at your option)
++#  any later version.
++#
++#  This Program is distributed in the hope that it will be useful,
++#  but WITHOUT ANY WARRANTY; without even the implied warranty of
++#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
++#  GNU General Public License for more details.
++#
++#  You should have received a copy of the GNU General Public License
++#  along with XBMC; see the file COPYING.  If not, see
++#  <http://www.gnu.org/licenses/>.
++#
++
++
++MYDIR=$(cd $(dirname $0); pwd)
++cd $MYDIR
++FFMPEG_PREFIX=${MYDIR}/ffmpeg-install
++
++BASE_URL=$(grep "BASE_URL=" FFMPEG-VERSION | sed 's/BASE_URL=//g')
++VERSION=$(grep "VERSION=" FFMPEG-VERSION | sed 's/VERSION=//g')
++ARCHIVE=ffmpeg-${VERSION}.tar.gz
++
++function usage {
++  echo "usage $(basename $0) 
++       [-p | --prefix]    ... ffmepg install prefix
++       [-d | --download]  ... no build, download tarfile only
++       [-r | --release]   ... disable debugging symbols
++       [-j]               ... make concurrency level
++       [--cpu=CPU]        ... minimum required CPU
++       [--arch=ARCH]      ... select architecture
++       [--disable-optimizations]
++  "
++}
++
++while :
++do
++  case $1 in
++    -h | --help)
++      usage
++      exit 0
++      ;;
++    -p | --prefix)
++      FFMPEG_PREFIX=$2
++      shift 2
++      ;; 
++    --prefix=*)
++      FFMPEG_PREFIX=${1#*=}
++      shift
++      ;; 
++    -d | --download)
++      downloadonly=true 
++      shift
++      ;;
++    -r | --release)
++      FLAGS="$FLAGS --disable-debug" 
++      shift
++      ;;
++    --disable-optimizations)
++      FLAGS="$FLAGS --disable-optimizations"
++      shift
++      ;;
++    --cpu=*)
++      FLAGS="$FLAGS --cpu=${1#*=}"
++      shift
++      ;;
++    --arch=*)
++      FLAGS="$FLAGS --arch=${1#*=}"
++      shift
++      ;;
++    --extra-cflags=*)
++      FLAGS="$FLAGS --extra-cflags=\"${1#*=}\""
++      shift
++      ;;
++    --extra-cxxflags=*)
++      FLAGS="$FLAGS --extra-cxxflags=\"${1#*=}\""
++      shift
++      ;;
++    -j)
++      BUILDTHREADS=$2
++      shift 2
++      ;;
++    --)
++      shift
++      break
++      ;;
++    -*)
++      echo "WARN: Unknown option (ignored): $1" >&2
++      shift
++      ;;
++    *)
++      break
++      ;;
++  esac
++done
++
++BUILDTHREADS=${BUILDTHREADS:-$(grep -c "^processor" /proc/cpuinfo)}
++[ ${BUILDTHREADS} -eq 0 ] && BUILDTHREADS=1
++
++[ -z ${VERSION} ] && exit 3
++if [ -f ${FFMPEG_PREFIX}/lib/pkgconfig/libavcodec.pc ] && [ -f .ffmpeg-installed ]
++then
++  CURVER=$(cat .ffmpeg-installed)
++  [ "$VERSION" == "$CURVER" ] && exit 0
++fi
++
++[ -f ${ARCHIVE} ] || curl -Ls --create-dirs -f -o ${ARCHIVE} ${BASE_URL}/${VERSION}.tar.gz
++[ $downloadonly ] && exit 0
++
++[ -d ffmpeg-${VERSION} ] && rm -rf ffmpeg-${VERSION} && rm .ffmpeg-installed >/dev/null 2>&1
++if [ -d ${FFMPEG_PREFIX} ]
++then
++  [ -w ${FFMPEG_PREFIX} ] || SUDO="sudo"
++else
++  [ -w $(dirname ${FFMPEG_PREFIX}) ] || SUDO="sudo"
++fi
++
++mkdir ffmpeg-${VERSION}
++cd ffmpeg-${VERSION} || exit 2
++tar --strip-components=1 -xf ../${ARCHIVE}
++
++./configure \
++	--extra-version="kodi-${VERSION}" \
++	--disable-devices \
++	--disable-ffplay \
++	--disable-ffmpeg \
++	--disable-sdl \
++	--disable-ffprobe \
++	--disable-ffserver \
++	--disable-doc \
++	--enable-gpl \
++	--enable-runtime-cpudetect \
++	--enable-postproc \
++	--enable-vaapi \
++	--enable-vdpau \
++	--enable-bzlib \
++	--enable-muxer=spdif \
++	--enable-muxer=adts \
++	--enable-muxer=asf \
++	--enable-muxer=ipod \
++	--enable-encoder=ac3 \
++	--enable-encoder=aac \
++	--enable-encoder=wmav2 \
++	--enable-protocol=http \
++	--enable-muxer=ogg \
++	--enable-nonfree \
++	--enable-pthreads \
++	--enable-zlib \
++	--disable-gnutls \
++	--disable-mips32r2 \
++	--disable-mipsdspr1 \
++	--disable-mipsdspr2 \
++	--disable-yasm \
++	--enable-cross-compile \
++	--arch=arm \
++	--target-os=linux \
++	--cc="$CC" \
++	--cxx="$CXX" \
++	--ld="$Ld" \
++	--ar="$AR" \
++	--prefix=$FFMPEG_PREFIX \
++	--bindir="$FFMPEG_PREFIX/bin" \
++	--libdir="$FFMPEG_PREFIX/lib" \
++	--incdir="$FFMPEG_PREFIX/include" \
++	--pkgconfigdir="$FFMPEG_PREFIX/lib/pkgconfig" \
++	--extra-cflags="$CFLAGS" \
++	--extra-cxxflags="$CXXFLAGS" \
++	--extra-ldflags="$LDFLAGS" \
++        ${FLAGS}
++
++make -j ${BUILDTHREADS}
++if [ $? -eq 0 ]
++then
++  [ ${SUDO} ] && echo "Root privileges are required to install to ${FFMPEG_PREFIX}"
++  ${SUDO} make install && echo "$VERSION" > ../.ffmpeg-installed
++else
++  echo "ERROR: Building ffmpeg failed"
++  exit 1
++fi
+diff --git a/tools/depends/target/ffmpeg/autobuild_vuplus_mips.sh b/tools/depends/target/ffmpeg/autobuild_vuplus_mips.sh
+new file mode 100755
+index 0000000..8cf492f
+--- /dev/null
++++ b/tools/depends/target/ffmpeg/autobuild_vuplus_mips.sh
+@@ -0,0 +1,185 @@
++#!/bin/bash
++#
++#      Copyright (C) 2005-2013 Team XBMC
++#      http://xbmc.org
++#
++#  This Program is free software; you can redistribute it and/or modify
++#  it under the terms of the GNU General Public License as published by
++#  the Free Software Foundation; either version 2, or (at your option)
++#  any later version.
++#
++#  This Program is distributed in the hope that it will be useful,
++#  but WITHOUT ANY WARRANTY; without even the implied warranty of
++#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
++#  GNU General Public License for more details.
++#
++#  You should have received a copy of the GNU General Public License
++#  along with XBMC; see the file COPYING.  If not, see
++#  <http://www.gnu.org/licenses/>.
++#
++
++
++MYDIR=$(cd $(dirname $0); pwd)
++cd $MYDIR
++FFMPEG_PREFIX=${MYDIR}/ffmpeg-install
++
++BASE_URL=$(grep "BASE_URL=" FFMPEG-VERSION | sed 's/BASE_URL=//g')
++VERSION=$(grep "VERSION=" FFMPEG-VERSION | sed 's/VERSION=//g')
++ARCHIVE=ffmpeg-${VERSION}.tar.gz
++
++function usage {
++  echo "usage $(basename $0) 
++       [-p | --prefix]    ... ffmepg install prefix
++       [-d | --download]  ... no build, download tarfile only
++       [-r | --release]   ... disable debugging symbols
++       [-j]               ... make concurrency level
++       [--cpu=CPU]        ... minimum required CPU
++       [--arch=ARCH]      ... select architecture
++       [--disable-optimizations]
++  "
++}
++
++while :
++do
++  case $1 in
++    -h | --help)
++      usage
++      exit 0
++      ;;
++    -p | --prefix)
++      FFMPEG_PREFIX=$2
++      shift 2
++      ;; 
++    --prefix=*)
++      FFMPEG_PREFIX=${1#*=}
++      shift
++      ;; 
++    -d | --download)
++      downloadonly=true 
++      shift
++      ;;
++    -r | --release)
++      FLAGS="$FLAGS --disable-debug" 
++      shift
++      ;;
++    --disable-optimizations)
++      FLAGS="$FLAGS --disable-optimizations"
++      shift
++      ;;
++    --cpu=*)
++      FLAGS="$FLAGS --cpu=${1#*=}"
++      shift
++      ;;
++    --arch=*)
++      FLAGS="$FLAGS --arch=${1#*=}"
++      shift
++      ;;
++    --extra-cflags=*)
++      FLAGS="$FLAGS --extra-cflags=\"${1#*=}\""
++      shift
++      ;;
++    --extra-cxxflags=*)
++      FLAGS="$FLAGS --extra-cxxflags=\"${1#*=}\""
++      shift
++      ;;
++    -j)
++      BUILDTHREADS=$2
++      shift 2
++      ;;
++    --)
++      shift
++      break
++      ;;
++    -*)
++      echo "WARN: Unknown option (ignored): $1" >&2
++      shift
++      ;;
++    *)
++      break
++      ;;
++  esac
++done
++
++BUILDTHREADS=${BUILDTHREADS:-$(grep -c "^processor" /proc/cpuinfo)}
++[ ${BUILDTHREADS} -eq 0 ] && BUILDTHREADS=1
++
++[ -z ${VERSION} ] && exit 3
++if [ -f ${FFMPEG_PREFIX}/lib/pkgconfig/libavcodec.pc ] && [ -f .ffmpeg-installed ]
++then
++  CURVER=$(cat .ffmpeg-installed)
++  [ "$VERSION" == "$CURVER" ] && exit 0
++fi
++
++[ -f ${ARCHIVE} ] || curl -Ls --create-dirs -f -o ${ARCHIVE} ${BASE_URL}/${VERSION}.tar.gz
++[ $downloadonly ] && exit 0
++
++[ -d ffmpeg-${VERSION} ] && rm -rf ffmpeg-${VERSION} && rm .ffmpeg-installed >/dev/null 2>&1
++if [ -d ${FFMPEG_PREFIX} ]
++then
++  [ -w ${FFMPEG_PREFIX} ] || SUDO="sudo"
++else
++  [ -w $(dirname ${FFMPEG_PREFIX}) ] || SUDO="sudo"
++fi
++
++mkdir ffmpeg-${VERSION}
++cd ffmpeg-${VERSION} || exit 2
++tar --strip-components=1 -xf ../${ARCHIVE}
++
++./configure \
++	--extra-version="kodi-${VERSION}" \
++	--disable-devices \
++	--disable-ffplay \
++	--disable-ffmpeg \
++	--disable-sdl \
++	--disable-ffprobe \
++	--disable-ffserver \
++	--disable-doc \
++	--enable-gpl \
++	--enable-runtime-cpudetect \
++	--enable-postproc \
++	--enable-vaapi \
++	--enable-vdpau \
++	--enable-bzlib \
++	--enable-muxer=spdif \
++	--enable-muxer=adts \
++	--enable-muxer=asf \
++	--enable-muxer=ipod \
++	--enable-encoder=ac3 \
++	--enable-encoder=aac \
++	--enable-encoder=wmav2 \
++	--enable-protocol=http \
++	--enable-muxer=ogg \
++	--enable-nonfree \
++	--enable-pthreads \
++	--enable-zlib \
++	--disable-gnutls \
++	--disable-mips32r2 \
++	--disable-mipsdspr1 \
++	--disable-mipsdspr2 \
++	--disable-yasm \
++	--enable-cross-compile \
++	--arch=mips \
++	--target-os=linux \
++	--cc="$CC" \
++	--cxx="$CXX" \
++	--ld="$Ld" \
++	--ar="$AR" \
++	--prefix=$FFMPEG_PREFIX \
++	--bindir="$FFMPEG_PREFIX/bin" \
++	--libdir="$FFMPEG_PREFIX/lib" \
++	--incdir="$FFMPEG_PREFIX/include" \
++	--pkgconfigdir="$FFMPEG_PREFIX/lib/pkgconfig" \
++	--extra-cflags="$CFLAGS" \
++	--extra-cxxflags="$CXXFLAGS" \
++	--extra-ldflags="$LDFLAGS" \
++        ${FLAGS}
++
++make -j ${BUILDTHREADS}
++if [ $? -eq 0 ]
++then
++  [ ${SUDO} ] && echo "Root privileges are required to install to ${FFMPEG_PREFIX}"
++  ${SUDO} make install && echo "$VERSION" > ../.ffmpeg-installed
++else
++  echo "ERROR: Building ffmpeg failed"
++  exit 1
++fi
+diff --git a/tools/depends/target/ffmpeg/build-solo2.sh b/tools/depends/target/ffmpeg/build-solo2.sh
+new file mode 100755
+index 0000000..0710d9c
+--- /dev/null
++++ b/tools/depends/target/ffmpeg/build-solo2.sh
+@@ -0,0 +1,23 @@
++#!/bin/sh
++
++export OETOP=/media/Extend/works/openvuplus_3.0/build/vusolo2
++
++export OEBIN="$OETOP/tmp/sysroots/i686-linux/usr/bin/mipsel-oe-linux:$OETOP/tmp/sysroots/i686-linux/usr/bin"
++export OESYSROOT="$OETOP/tmp/sysroots/vusolo2"
++
++export PATH=$OEBIN:$PATH
++
++GCC_PREFIX="mipsel-oe-linux-"
++GCC_EXTCFLAGS="-mel -mabi=32 -mhard-float -march=mips32 --sysroot=$OESYSROOT"
++GCC_EXTLDFLAGS="--sysroot=$OESYSROOT"
++
++CFLAGS="-O2 -g -D_DEBUG -Wall  -fPIC -DPIC -D_REENTRANT -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64"
++CXXFLAGS="$CFLAGS -std=gnu++11"
++
++CC="${GCC_PREFIX}gcc $GCC_EXTCFLAGS" 
++CXX="${GCC_PREFIX}g++ $GCC_EXTCFLAGS" 
++LD="${GCC_PREFIX}ld $GCC_EXTLDFLAGS" 
++AR="${GCC_PREFIX}ar"
++
++CC="$CC" CXX="$CXX" LD="$LD" AR="$AR" CFLAGS="$CFLAGS" CXXFLAGS="$CXXFLAGS" ./autobuild_vuplus_mips.sh
++
+diff --git a/xbmc/cores/AudioEngine/Engines/ActiveAE/ActiveAESink.cpp b/xbmc/cores/AudioEngine/Engines/ActiveAE/ActiveAESink.cpp
+index 3665492..0572105 100644
+--- a/xbmc/cores/AudioEngine/Engines/ActiveAE/ActiveAESink.cpp
++++ b/xbmc/cores/AudioEngine/Engines/ActiveAE/ActiveAESink.cpp
+@@ -567,6 +567,13 @@ void CActiveAESink::EnumerateSinkList(bool force)
+     return;
+ 
+   unsigned int c_retry = 4;
++  char *sink_retry_count = getenv("AESINK_RETRY_CNT");
++  if (sink_retry_count) {
++  	CLog::Log(LOGNOTICE, "Change AESink retry count..");
++  	c_retry = atoi(sink_retry_count);
++  	CLog::Log(LOGNOTICE, "AESink retry count - %d", c_retry);
++  }
++
+   m_sinkInfoList.clear();
+   CAESinkFactory::EnumerateEx(m_sinkInfoList);
+   while(m_sinkInfoList.size() == 0 && c_retry > 0)
+diff --git a/xbmc/cores/DllLoader/ldt_keeper.h b/xbmc/cores/DllLoader/ldt_keeper.h
+index 8f14576..64a81b8 100644
+--- a/xbmc/cores/DllLoader/ldt_keeper.h
++++ b/xbmc/cores/DllLoader/ldt_keeper.h
+@@ -32,9 +32,12 @@ typedef struct {
+   int fd;
+ } ldt_fs_t;
+ 
++#if !defined(__mips__)
+ void      Setup_FS_Segment(void);
+ ldt_fs_t* Setup_LDT_Keeper(void);
+ void      Restore_LDT_Keeper(ldt_fs_t* ldt_fs);
++#endif /*!defined(__mips__)*/
++
+ #ifdef __cplusplus
+ }
+ #endif
+diff --git a/xbmc/cores/dvdplayer/DVDCodecs/Video/OpenMaxVideo.cpp b/xbmc/cores/dvdplayer/DVDCodecs/Video/OpenMaxVideo.cpp
+index 87d97af..68556ab 100644
+--- a/xbmc/cores/dvdplayer/DVDCodecs/Video/OpenMaxVideo.cpp
++++ b/xbmc/cores/dvdplayer/DVDCodecs/Video/OpenMaxVideo.cpp
+@@ -65,8 +65,10 @@ using namespace KODI::MESSAGING;
+ #define OMX_VC1_DECODER         "OMX.Nvidia.vc1.decode"
+ 
+ // EGL extension functions
++#ifndef EGL_EGLEXT_PROTOTYPES
+ static PFNEGLCREATEIMAGEKHRPROC eglCreateImageKHR;
+ static PFNEGLDESTROYIMAGEKHRPROC eglDestroyImageKHR;
++#endif
+ 
+ #if defined(EGL_KHR_reusable_sync)
+ static PFNEGLCREATESYNCKHRPROC eglCreateSyncKHR;
+@@ -74,6 +76,7 @@ static PFNEGLDESTROYSYNCKHRPROC eglDestroySyncKHR;
+ static PFNEGLCLIENTWAITSYNCKHRPROC eglClientWaitSyncKHR;
+ #endif
+ 
++#ifndef EGL_EGLEXT_PROTOTYPES
+ #define GETEXTENSION(type, ext) \
+ do \
+ { \
+@@ -83,6 +86,7 @@ do \
+         CLog::Log(LOGERROR, "%s::%s - ERROR getting proc addr of " #ext "\n", CLASSNAME, __func__); \
+     } \
+ } while (0);
++#endif
+ 
+ #define OMX_INIT_STRUCTURE(a) \
+   memset(&(a), 0, sizeof(a)); \
+@@ -715,10 +719,12 @@ void OpenMaxDeleteTextures(void *userdata)
+   EGLDisplay eglDisplay = eglGetCurrentDisplay();
+   EGLContext eglContext = eglGetCurrentContext();
+ 
++#ifndef EGL_EGLEXT_PROTOTYPES
+   if (!eglDestroyImageKHR)
+   {
+     GETEXTENSION(PFNEGLDESTROYIMAGEKHRPROC, eglDestroyImageKHR);
+   }
++#endif
+ 
+   DeleteImageInfo *deleteInfo = (DeleteImageInfo*)userdata;
+ 
+@@ -781,6 +787,7 @@ OMX_ERRORTYPE COpenMaxVideo::AllocOMXOutputEGLTextures(void)
+ {
+   OMX_ERRORTYPE omx_err;
+ 
++#ifndef EGL_EGLEXT_PROTOTYPES
+   if (!eglCreateImageKHR)
+   {
+     GETEXTENSION(PFNEGLCREATEIMAGEKHRPROC,  eglCreateImageKHR);
+@@ -790,6 +797,7 @@ OMX_ERRORTYPE COpenMaxVideo::AllocOMXOutputEGLTextures(void)
+     GETEXTENSION(PFNEGLCLIENTWAITSYNCKHRPROC, eglClientWaitSyncKHR);
+ #endif
+   }
++#endif
+ 
+   EGLint attrib = EGL_NONE;
+   OpenMaxVideoBuffer *egl_buffer;
+@@ -1210,7 +1218,9 @@ void OpenMaxVideoBuffer::ReleaseTexture()
+   // add egl resources to deletion info
+   // TODO delete from constructor!
+   deleteInfo->egl_image = egl_image;
++#if defined(EGL_KHR_reusable_sync)
+   deleteInfo->egl_sync = eglSync;
++#endif
+   deleteInfo->texture_id = texture_id;
+ 
+   if ( g_application.IsCurrentThread() )
+diff --git a/xbmc/filesystem/FileCache.h b/xbmc/filesystem/FileCache.h
+index 46d4079..b809605 100644
+--- a/xbmc/filesystem/FileCache.h
++++ b/xbmc/filesystem/FileCache.h
+@@ -24,7 +24,6 @@
+ #include "threads/CriticalSection.h"
+ #include "File.h"
+ #include "threads/Thread.h"
+-#include <atomic>
+ 
+ namespace XFILE
+ {
+@@ -78,7 +77,7 @@ namespace XFILE
+     unsigned     m_writeRate;
+     unsigned     m_writeRateActual;
+     bool         m_cacheFull;
+-    std::atomic<int64_t> m_fileSize;
++    int64_t	m_fileSize;
+     unsigned int m_flags;
+     CCriticalSection m_sync;
+   };
+diff --git a/xbmc/input/InputManager.cpp b/xbmc/input/InputManager.cpp
+index 1e21e7b..5106f63 100644
+--- a/xbmc/input/InputManager.cpp
++++ b/xbmc/input/InputManager.cpp
+@@ -620,6 +620,18 @@ bool CInputManager::OnKey(const CKey& key)
+           useKeyboard = true;
+       }
+     }
++#if defined(TARGET_VUPLUS) || defined(TARGET_VUPLUS_ARM)
++    switch(key.GetVKey()) {
++      case 0x0d:
++      case 0x80:
++      case 0x81:
++      case 0x82:
++      case 0x83:
++        if (iWin == WINDOW_DIALOG_KEYBOARD)
++          useKeyboard = false;
++        break;
++    }
++#endif
+     if (useKeyboard)
+     {
+       // use the virtualkeyboard section of the keymap, and send keyboard-specific or navigation
+diff --git a/xbmc/input/linux/LinuxInputDevices.cpp b/xbmc/input/linux/LinuxInputDevices.cpp
+index 9f3e866..2c71e25 100644
+--- a/xbmc/input/linux/LinuxInputDevices.cpp
++++ b/xbmc/input/linux/LinuxInputDevices.cpp
+@@ -27,6 +27,8 @@
+  *  <http://www.gnu.org/licenses/>.
+  *
+  */
++#define VKEY_ENABLE (0)
++ 
+ #include "system.h"
+ #if defined(HAS_LINUX_EVENTS)
+ 
+@@ -273,6 +275,10 @@ KeyMap keyMap[] = {
+   { 378               , XBMCK_RIGHT       }, // Green
+   { 381               , XBMCK_UP          }, // Yellow
+   { 366               , XBMCK_DOWN        }, // Blue
++#if defined(TARGET_VUPLUS) || defined(TARGET_VUPLUS_ARM)
++  { KEY_OK            , XBMCK_RETURN      }, // Ok
++  { KEY_EXIT          , XBMCK_ESCAPE      }, // EXIT
++#endif
+ };
+ 
+ typedef enum
+@@ -550,9 +556,17 @@ bool CLinuxInputDevice::KeyEvent(const struct input_event& levt, XBMC_Event& dev
+ 
+     KeymapEntry entry;
+     entry.code = code;
+-    if (GetKeymapEntry(entry))
++
++	int keyMapValue;
++#if defined(TARGET_VUPLUS) || defined(TARGET_VUPLUS_ARM)
++	if (devt.key.keysym.mod & (XBMCKMOD_SHIFT | XBMCKMOD_CAPS)) keyMapValue = entry.shift;
++	else if (devt.key.keysym.mod & XBMCKMOD_ALT) keyMapValue = entry.alt;
++	else if (devt.key.keysym.mod & XBMCKMOD_META) keyMapValue = entry.altShift;
++	else keyMapValue = entry.base;
++	devt.key.keysym.unicode = devt.key.keysym.sym;
++#else
++	if (GetKeymapEntry(entry))
+     {
+-      int keyMapValue;
+       if (devt.key.keysym.mod & (XBMCKMOD_SHIFT | XBMCKMOD_CAPS)) keyMapValue = entry.shift;
+       else if (devt.key.keysym.mod & XBMCKMOD_ALT) keyMapValue = entry.alt;
+       else if (devt.key.keysym.mod & XBMCKMOD_META) keyMapValue = entry.altShift;
+@@ -567,6 +581,7 @@ bool CLinuxInputDevice::KeyEvent(const struct input_event& levt, XBMC_Event& dev
+         }
+       }
+     }
++#endif
+   }
+ 
+   return true;
+@@ -855,6 +870,12 @@ XBMC_Event CLinuxInputDevice::ReadEvent()
+         break;
+       }
+ 
++#if defined(TARGET_VUPLUS) || defined(TARGET_VUPLUS_ARM)
++      if (access("/tmp/playing.lock", F_OK) == 0) {
++    	break;
++      }
++#endif
++
+       //printf("read event readlen = %d device name %s m_fileName %s\n", readlen, m_deviceName, m_fileName.c_str());
+ 
+       // sanity check if we realy read the event
+@@ -1094,6 +1115,7 @@ bool CLinuxInputDevices::CheckDevice(const char *device)
+   if (fd < 0)
+     return false;
+ 
++#if !defined(TARGET_VUPLUS) && !defined(TARGET_VUPLUS_ARM) && !VKEY_ENABLE
+   if (ioctl(fd, EVIOCGRAB, 1) && errno != EINVAL)
+   {
+     close(fd);
+@@ -1101,6 +1123,7 @@ bool CLinuxInputDevices::CheckDevice(const char *device)
+   }
+ 
+   ioctl(fd, EVIOCGRAB, 0);
++#endif
+ 
+   close(fd);
+ 
+@@ -1193,6 +1216,7 @@ bool CLinuxInputDevice::Open()
+     return false;
+   }
+ 
++#if !defined(TARGET_VUPLUS) && !defined(TARGET_VUPLUS_ARM) && !VKEY_ENABLE
+   /* grab device */
+   ret = ioctl(fd, EVIOCGRAB, 1);
+   if (ret && errno != EINVAL)
+@@ -1201,6 +1225,7 @@ bool CLinuxInputDevice::Open()
+     close(fd);
+     return false;
+   }
++#endif
+ 
+   // Set the socket to non-blocking
+   int opts = 0;
+@@ -1267,8 +1292,9 @@ bool CLinuxInputDevice::Open()
+   return true;
+ 
+ driver_open_device_error:
+-
++#if !defined(TARGET_VUPLUS) && !defined(TARGET_VUPLUS_ARM) && !VKEY_ENABLE
+   ioctl(fd, EVIOCGRAB, 0);
++#endif
+   if (m_vt_fd >= 0)
+   {
+     close(m_vt_fd);
+@@ -1342,9 +1368,10 @@ bool CLinuxInputDevice::GetKeymapEntry(KeymapEntry& entry)
+  */
+ void CLinuxInputDevice::Close()
+ {
++#if !defined(TARGET_VUPLUS) && !defined(TARGET_VUPLUS_ARM) && !VKEY_ENABLE
+   /* release device */
+   ioctl(m_fd, EVIOCGRAB, 0);
+-
++#endif
+   if (m_vt_fd >= 0)
+     close(m_vt_fd);
+ 
+diff --git a/xbmc/utils/CPUInfo.cpp b/xbmc/utils/CPUInfo.cpp
+index f1d07dd..7dccf37 100644
+--- a/xbmc/utils/CPUInfo.cpp
++++ b/xbmc/utils/CPUInfo.cpp
+@@ -268,7 +268,11 @@ CCPUInfo::CCPUInfo(void)
+   if (m_fProcTemperature == NULL)   
+     m_fProcTemperature = fopen("/sys/class/thermal/thermal_zone0/temp", "r");  // On Raspberry PIs
+ 
++#if defined(TARGET_VUPLUS) || defined(TARGET_VUPLUS_ARM)
++  m_fCPUFreq = fopen ("/sys/devices/platform/brcmstb/cpu_khz", "r");
++#else
+   m_fCPUFreq = fopen ("/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq", "r");
++#endif
+   if (!m_fCPUFreq)
+   {
+     m_cpuInfoForFreq = true;
+@@ -320,6 +324,29 @@ CCPUInfo::CCPUInfo(void)
+           StringUtils::Trim(m_cores[nCurrId].m_strModel);
+         }
+       }
++#if defined(TARGET_VUPLUS) || defined(TARGET_VUPLUS_ARM)
++      else if (strncmp(buffer, "system type", strlen("system type"))==0)
++      {
++        char *needle = strstr(buffer, ":");
++        if (needle && strlen(needle)>3)
++        {
++          needle+=2;
++          m_cpuModel = needle;
++          m_cores[nCurrId].m_strModel = m_cpuModel;
++          StringUtils::Trim(m_cores[nCurrId].m_strModel);
++        }
++      }
++      else if (strncmp(buffer, "cpu model", strlen("cpu model"))==0)
++      {
++        char *needle = strstr(buffer, ":");
++        if (needle && strlen(needle)>3)
++        {
++          needle+=2;
++          m_cores[nCurrId].m_strVendor = needle;
++          StringUtils::Trim(m_cores[nCurrId].m_strVendor);
++        }
++      }
++#endif
+       else if (strncmp(buffer, "BogoMIPS", strlen("BogoMIPS"))==0)
+       {
+         char *needle = strstr(buffer, ":");
+diff --git a/xbmc/windowing/egl/EGLNativeTypeVuplus.cpp b/xbmc/windowing/egl/EGLNativeTypeVuplus.cpp
+new file mode 100644
+index 0000000..cbc2a4f
+--- /dev/null
++++ b/xbmc/windowing/egl/EGLNativeTypeVuplus.cpp
+@@ -0,0 +1,177 @@
++/*
++ *      Copyright (C) 2011-2012 Team XBMC
++ *      http://www.xbmc.org
++ *
++ *  This Program is free software; you can redistribute it and/or modify
++ *  it under the terms of the GNU General Public License as published by
++ *  the Free Software Foundation; either version 2, or (at your option)
++ *  any later version.
++ *
++ *  This Program is distributed in the hope that it will be useful,
++ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
++ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
++ *  GNU General Public License for more details.
++ *
++ *  You should have received a copy of the GNU General Public License
++ *  along with XBMC; see the file COPYING.  If not, see
++ *  <http://www.gnu.org/licenses/>.
++ *
++ */
++#include "system.h"
++#include "EGLNativeTypeVuplus.h"
++#include "utils/StringUtils.h"
++#include "utils/log.h"
++#include "guilib/gui3d.h"
++#include "linux/DllBCM.h"
++
++#include <stdio.h>
++#include <malloc.h>
++#include <assert.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++
++#include "gles_init.h"
++
++using namespace std;
++
++bool CEGLNativeTypeVuplus::CheckCompatibility()
++{
++  return true;
++}
++
++void CEGLNativeTypeVuplus::Initialize()
++{
++}
++
++void CEGLNativeTypeVuplus::Destroy()
++{
++}
++
++bool CEGLNativeTypeVuplus::CreateNativeDisplay()
++{
++  GLES_Native_Init();
++  return GLES_Native_CreateNativeDisplay(&m_nativeDisplay);
++}
++
++bool CEGLNativeTypeVuplus::CreateNativeWindow()
++{
++  m_nativeWindow = GLES_Native_CreateNativeWindow();
++  if (!m_nativeWindow) {
++	  return false;
++  }
++  return true;
++}
++
++bool CEGLNativeTypeVuplus::GetNativeDisplay(XBNativeDisplayType **nativeDisplay) const
++{
++  *nativeDisplay = (XBNativeDisplayType*) &m_nativeDisplay;
++  return true;
++}
++
++bool CEGLNativeTypeVuplus::GetNativeWindow(XBNativeDisplayType **nativeWindow) const
++{
++  *nativeWindow = (XBNativeWindowType*) &m_nativeWindow;
++  return true;
++}  
++
++bool CEGLNativeTypeVuplus::DestroyNativeDisplay()
++{
++  GLES_Native_DestroyNativeDisplay();
++  return true;
++}
++
++bool CEGLNativeTypeVuplus::DestroyNativeWindow()
++{
++  GLES_Native_DestroyNativeWindow();
++  return true;
++}
++
++bool CEGLNativeTypeVuplus::GetNativeResolution(RESOLUTION_INFO *res) const
++{
++  *res = m_desktopRes;
++  return true;
++}
++
++bool CEGLNativeTypeVuplus::SetNativeResolution(const RESOLUTION_INFO &res)
++{
++  m_desktopRes = res;
++  return true;
++}
++
++bool CEGLNativeTypeVuplus::ProbeResolutions(std::vector<RESOLUTION_INFO> &resolutions)
++{
++  resolutions.clear();
++
++  m_desktopResAll[0].iScreen      = 0;
++  m_desktopResAll[0].bFullScreen  = true;
++  m_desktopResAll[0].iWidth       = 1280;
++  m_desktopResAll[0].iHeight      = 720;
++  m_desktopResAll[0].iScreenWidth = 1280;
++  m_desktopResAll[0].iScreenHeight= 720;
++  m_desktopResAll[0].dwFlags      =  D3DPRESENTFLAG_PROGRESSIVE;
++  m_desktopResAll[0].fRefreshRate = 50;
++  m_desktopResAll[0].strMode = StringUtils::Format("%dx%d", 1280, 720);
++  m_desktopResAll[0].strMode = StringUtils::Format("%s @ %.2f%s - Full Screen", m_desktopRes.strMode.c_str(), (float)50,m_desktopRes.dwFlags & D3DPRESENTFLAG_INTERLACED ? "i" : "");
++
++  m_desktopResAll[0].iSubtitles   = (int)(0.965 * m_desktopResAll[0].iHeight);
++
++  CLog::Log(LOGDEBUG, "EGL initial desktop resolution %s\n", m_desktopResAll[0].strMode.c_str());
++
++  resolutions.push_back(m_desktopResAll[0]);
++
++  m_desktopResAll[1].iScreen      = 0;
++  m_desktopResAll[1].bFullScreen  = true;
++  m_desktopResAll[1].iWidth       = 1280;
++  m_desktopResAll[1].iHeight      = 720;
++  m_desktopResAll[1].iScreenWidth = 1280;
++  m_desktopResAll[1].iScreenHeight= 720;
++  m_desktopResAll[1].dwFlags      =  D3DPRESENTFLAG_PROGRESSIVE;
++
++  m_desktopResAll[1].dwFlags      |=  D3DPRESENTFLAG_MODE3DSBS;
++  m_desktopResAll[1].fRefreshRate = 50;
++  m_desktopResAll[1].strMode = StringUtils::Format("%dx%d", 1280, 720);
++  m_desktopResAll[1].strMode = StringUtils::Format("%s @ %.2f%s - Full Screen 3DSBS", m_desktopResAll[1].strMode.c_str(), (float)50,m_desktopResAll[1].dwFlags & D3DPRESENTFLAG_INTERLACED ? "i" : "");
++
++  m_desktopResAll[1].iSubtitles   = (int)(0.965 * m_desktopResAll[1].iHeight);
++
++  CLog::Log(LOGDEBUG, "EGL initial desktop resolution %s\n", m_desktopResAll[1].strMode.c_str());
++
++  resolutions.push_back(m_desktopResAll[1]);
++
++  m_desktopResAll[2].iScreen      = 0;
++  m_desktopResAll[2].bFullScreen  = true;
++  m_desktopResAll[2].iWidth       = 1280;
++  m_desktopResAll[2].iHeight      = 720;
++  m_desktopResAll[2].iScreenWidth = 1280;
++  m_desktopResAll[2].iScreenHeight= 720;
++  m_desktopResAll[2].dwFlags      =  D3DPRESENTFLAG_PROGRESSIVE;
++
++  m_desktopResAll[2].dwFlags      |=  D3DPRESENTFLAG_MODE3DTB;
++  m_desktopResAll[2].fRefreshRate = 50;
++  m_desktopResAll[2].strMode = StringUtils::Format("%dx%d", 1280, 720);
++  m_desktopResAll[2].strMode = StringUtils::Format("%s @ %.2f%s - Full Screen 3DTB", m_desktopResAll[2].strMode.c_str(), (float)50,m_desktopResAll[2].dwFlags & D3DPRESENTFLAG_INTERLACED ? "i" : "");
++
++  m_desktopResAll[2].iSubtitles   = (int)(0.965 * m_desktopResAll[2].iHeight);
++
++  CLog::Log(LOGDEBUG, "EGL initial desktop resolution %s\n", m_desktopResAll[2].strMode.c_str());
++
++  resolutions.push_back(m_desktopResAll[2]);
++
++  m_desktopRes = m_desktopResAll[0];
++
++  return true;
++}
++
++bool CEGLNativeTypeVuplus::GetPreferredResolution(RESOLUTION_INFO *res) const
++{
++  *res = m_desktopResAll[0];
++  return true;
++}
++
++bool CEGLNativeTypeVuplus::ShowWindow(bool show)
++{
++  return false;
++}
++
++
+diff --git a/xbmc/windowing/egl/EGLNativeTypeVuplus.h b/xbmc/windowing/egl/EGLNativeTypeVuplus.h
+new file mode 100644
+index 0000000..9f0ff93
+--- /dev/null
++++ b/xbmc/windowing/egl/EGLNativeTypeVuplus.h
+@@ -0,0 +1,60 @@
++#pragma once
++
++/*
++ *      Copyright (C) 2011-2012 Team XBMC
++ *      http://www.xbmc.org
++ *
++ *  This Program is free software; you can redistribute it and/or modify
++ *  it under the terms of the GNU General Public License as published by
++ *  the Free Software Foundation; either version 2, or (at your option)
++ *  any later version.
++ *
++ *  This Program is distributed in the hope that it will be useful,
++ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
++ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
++ *  GNU General Public License for more details.
++ *
++ *  You should have received a copy of the GNU General Public License
++ *  along with XBMC; see the file COPYING.  If not, see
++ *  <http://www.gnu.org/licenses/>.
++ *
++ */
++
++#include "EGLNativeType.h"
++
++#include <vector>
++#include <string>
++
++class CEGLNativeTypeVuplus : public CEGLNativeType
++{
++public:
++  CEGLNativeTypeVuplus()
++  {
++	  m_nativeWindow = 0;
++	  m_nativeDisplay = 0;
++  };
++  virtual ~CEGLNativeTypeVuplus() {};
++  virtual std::string GetNativeName() const { return "vuplus"; };
++  virtual bool  CheckCompatibility();
++  virtual void  Initialize();
++  virtual void  Destroy();
++  virtual int   GetQuirks() { return EGL_QUIRK_NONE; };
++
++  virtual bool  CreateNativeDisplay();
++  virtual bool  CreateNativeWindow();
++  virtual bool  GetNativeDisplay(XBNativeDisplayType **nativeDisplay) const;
++  virtual bool  GetNativeWindow(XBNativeWindowType **nativeWindow) const;
++
++  virtual bool  DestroyNativeWindow();
++  virtual bool  DestroyNativeDisplay();
++
++  virtual bool  GetNativeResolution(RESOLUTION_INFO *res) const;
++  virtual bool  SetNativeResolution(const RESOLUTION_INFO &res);
++  virtual bool  ProbeResolutions(std::vector<RESOLUTION_INFO> &resolutions);
++  virtual bool  GetPreferredResolution(RESOLUTION_INFO *res) const;
++
++  virtual bool  ShowWindow(bool show);
++private:
++  RESOLUTION_INFO m_desktopRes;
++  RESOLUTION_INFO m_desktopResAll[3];
++};
+diff --git a/xbmc/windowing/egl/EGLWrapper.cpp b/xbmc/windowing/egl/EGLWrapper.cpp
+index 036d4b9..891b3be 100644
+--- a/xbmc/windowing/egl/EGLWrapper.cpp
++++ b/xbmc/windowing/egl/EGLWrapper.cpp
+@@ -36,6 +36,9 @@
+ #if defined(HAS_IMXVPU)
+   #include "EGLNativeTypeIMX.h"
+ #endif
++#if defined(TARGET_VUPLUS) || defined(TARGET_VUPLUS_ARM)
++  #include "EGLNativeTypeVuplus.h"
++#endif
+ #include "EGLNativeTypeAmlogic.h"
+ #include "EGLWrapper.h"
+ 
+@@ -105,6 +108,9 @@ bool CEGLWrapper::Initialize(const std::string &implementation)
+ #if defined(HAS_IMXVPU)
+       (nativeGuess = CreateEGLNativeType<CEGLNativeTypeIMX>(implementation)) ||
+ #endif
++#if defined(TARGET_VUPLUS) || defined(TARGET_VUPLUS_ARM)
++      (nativeGuess = CreateEGLNativeType<CEGLNativeTypeVuplus>(implementation)) ||
++#endif
+       (nativeGuess = CreateEGLNativeType<CEGLNativeTypeAmlogic>(implementation))
+       )
+   {
+diff --git a/xbmc/windowing/egl/Makefile.in b/xbmc/windowing/egl/Makefile.in
+index 32fb168..71653e2 100644
+--- a/xbmc/windowing/egl/Makefile.in
++++ b/xbmc/windowing/egl/Makefile.in
+@@ -14,6 +14,12 @@ ifeq (@USE_IMXVPU@,1)
+ SRCS+= EGLNativeTypeIMX.cpp
+ endif
+ SRCS+= EGLWrapper.cpp
++ifeq (@USE_VUPLUS_EGL@,1)
++SRCS+= EGLNativeTypeVuplus.cpp
++endif
++ifeq (@USE_VUPLUS_ARM_EGL@,1)
++SRCS+= EGLNativeTypeVuplus.cpp
++endif
+ 
+ # Wayland specific detail
+ ifeq (@USE_WAYLAND@,1)
+diff --git a/xbmc/xbmc.cpp b/xbmc/xbmc.cpp
+index 366e4b5..383268b 100644
+--- a/xbmc/xbmc.cpp
++++ b/xbmc/xbmc.cpp
+@@ -136,5 +136,9 @@ extern "C" int XBMC_Run(bool renderGUI)
+   g_RBP.Deinitialize();
+ #endif
+ 
++#if defined(TARGET_VUPLUS) || defined(TARGET_VUPLUS_ARM)
++  system("xbmc.helper --stop");
++#endif
++
+   return status;
+ }
+-- 
+1.9.1
+

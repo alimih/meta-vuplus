@@ -1,6 +1,11 @@
 SECTION = "base"
 LICENSE = "CLOSED"
 
+require conf/license/license-close.inc
+
+PROVIDES += "libgles"
+RPROVIDES_${PN} += "libgles"
+
 PV="15.1"
 PR="${SRCDATE}.${SRCDATE_PR}"
 

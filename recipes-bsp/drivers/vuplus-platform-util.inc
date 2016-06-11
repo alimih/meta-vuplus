@@ -1,6 +1,11 @@
 SECTION = "base"
 LICENSE = "CLOSED"
 
+require conf/license/license-close.inc
+
+PROVIDES += "vuplus-platform-util"
+RPROVIDES_${PN} += "vuplus-platform-util"
+
 PV="15.1"
 PR="${SRCDATE}.${SRCDATE_PR}"
 
@@ -36,4 +41,3 @@ do_install_append() {
 INSANE_SKIP_${PN} = "already-stripped"
 
 FILESEXTRAPATHS_prepend := "${THISDIR}/vuplus-platform-util:"
-
