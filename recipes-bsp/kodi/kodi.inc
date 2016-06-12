@@ -52,6 +52,7 @@ DEPENDS = "\
 	libsquish \
 	libdcadec \
 	libcrossguid \
+	curl-native \
 "
 
 PROVIDES += "kodi"
