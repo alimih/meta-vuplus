@@ -4,17 +4,18 @@ LICENSE = "GPLv2"
 LIC_FILES_CHKSUM = "file://LICENSE;md5=c9e255efa454e0155c1fd758df7dcaf3"
 BRANCH = "vuplus_experimental"
 S = "${WORKDIR}/git"
-SRC_URI = "git://code.vuplus.com/git/dvbapp.git;protocol=http;branch=${BRANCH} \
-        file://move-youtube-menu-entry.patch \
-        file://fix-hbbtv-crash-on-rtl-and-fox.patch \
-"
+SRC_URI = "git://code.vuplus.com/git/dvbapp.git;protocol=http;branch=${BRANCH}"
+#SRC_URI = "git://code.vuplus.com/git/dvbapp.git;protocol=http;branch=${BRANCH} \
+#        file://move-youtube-menu-entry.patch \
+#        file://fix-hbbtv-crash-on-rtl-and-fox.patch \
+#"
 
 inherit gitpkgv
 SRCREV = "9e71a84b987082e466bc6c9c3b58255748bfe338"
 PV = "git${SRCPV}"
 PKGV = "git${GITPKGV}"
 
-RDEPENDS_${PN}  = "vuplus-opera-browser vuplus-hbbtv-dumpait"
+RDEPENDS_${PN}  = "opera-hbbtv vuplus-hbbtv-dumpait"
 FILES_${PN}     = "/usr/lib/enigma2/python/Plugins/Extensions/HbbTV/* \
         /usr/lib/enigma2/python/Components/Sources/* \
         /usr/lib/enigma2/python/Components/Converter/* \
