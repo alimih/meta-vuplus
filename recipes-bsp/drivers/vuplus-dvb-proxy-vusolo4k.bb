@@ -4,7 +4,7 @@ KV = "3.14.28"
 
 COMPATIBLE_MACHINE = "^(vusolo4k)$"
 
-SRCDATE = "20160602"
+SRCDATE = "20161020"
 SRCDATE_PR = "r0"
 
 pkg_postinst_${PN}_append () {
@@ -13,5 +13,5 @@ pkg_postinst_${PN}_append () {
 	fi
 }
 
-SRC_URI[md5sum] = "e4f354d01ecf0cb5d61c1007a48dfbcf"
-SRC_URI[sha256sum] = "3a225649671d7dcfb53629074932084af94802dcbe6e6ced87a71bf05656a180"
+SRC_URI[md5sum] = "9668af560c1a290df693339d9fc32e12"
+SRC_URI[sha256sum] = "a55744b7e9905723a18faf652b71a275de7237a8b8751849b878f783e0efb21a"

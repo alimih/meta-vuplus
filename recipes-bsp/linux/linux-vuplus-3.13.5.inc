@@ -25,6 +25,7 @@ SRC_URI += "http://archive.vuplus.com/download/kernel/stblinux-${KV}.tar.bz2 \
 	file://0001-STV-Add-SNR-Signal-report-parameters.patch \
 	file://0001-stv090x-optimized-TS-sync-control.patch \
 	file://${KERNEL_CONFIG} \
+	file://kernel-gcc6.patch \
 	"
 
 SRC_URI += "${@base_contains("MACHINE_FEATURES", "dvbproxy", "file://linux_dvb_adapter.patch;patch=1;pnum=1", "", d)}"
@@ -36,6 +37,7 @@ S = "${WORKDIR}/linux"
 export OS = "Linux"
 KERNEL_IMAGETYPE = "vmlinux"
 KERNEL_OUTPUT = "vmlinux"
+KERNEL_OUTPUT_DIR = "."
 KERNEL_OBJECT_SUFFIX = "ko"
 KERNEL_IMAGEDEST = "/tmp"
 
