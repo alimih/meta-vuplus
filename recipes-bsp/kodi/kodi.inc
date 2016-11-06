@@ -111,6 +111,7 @@ PR = "${BUILD_PR}_${GLPR}_${SRCREV}"
 
 SRC_URI = "\
 	https://github.com/xbmc/xbmc/archive/16.1-Jarvis.tar.gz \
+	file://gcc6_fix.patch \
 	file://0001-vuplus-patch.patch \
 	file://0002-mx3L-patch.patch \
 	http://archive.vuplus.com/download/build_support/kodi/xbmc-support_${MACHINE}_${GLPR}.tar.gz;name=xbmc-support \
