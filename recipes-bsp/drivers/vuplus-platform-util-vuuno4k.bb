@@ -1,5 +1,7 @@
 require vuplus-platform-util.inc
 
+COMPATIBLE_MACHINE = "^(vuuno4k)$"
+
 PV="16.1"
 SRCDATE = "20161223"
 SRCDATE_PR = "r0"

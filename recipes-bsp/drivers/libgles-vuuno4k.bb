@@ -1,5 +1,7 @@
 require libgles.inc
 
+COMPATIBLE_MACHINE = "^(vuuno4k)$"
+
 SRCDATE = "20161223"
 SRCDATE_PR = "r0"
 PV="16.1"
