@@ -2,6 +2,7 @@ require vuplus-dvb-proxy.inc
 
 KV = "3.14.28"
 
+COMPATIBLE_MACHINE = "^(vuuno4k)$"
 SRCDATE = "20170112"
 SRCDATE_PR = "r0"
 
